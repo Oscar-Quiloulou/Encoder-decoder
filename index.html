@@ -1,4 +1,3 @@
-// ...existing code...
 <!doctype html>
 <html lang="fr">
 <head>
@@ -265,6 +264,133 @@
         if (!eventStore.length) addEvent('start','Journal démarré');
 
     </script>
+    <script>
+        (function(){
+    // configuration — selectors à ignorer / redacter
+    const IGNORE_SELECTORS = ['input[type="password"]', 'input[type="email"]', 'textarea', 'script', 'style', '[data-no-log]'];
+
+    function matchesIgnore(node){
+        if (!node || node.nodeType !== 1) return false;
+        try { return IGNORE_SELECTORS.some(s => node.matches && node.matches(s)); }
+        catch(e){ return false; }
+    }
+
+    // construit un chemin CSS simple et lisible vers l'élément
+    function cssPath(el){
+        if (!el || el.nodeType !== 1) return '';
+        const parts = [];
+        while (el && el.nodeType === 1 && el !== document.body && el !== document.documentElement){
+            let part = el.nodeName.toLowerCase();
+            if (el.id) part += '#'+el.id;
+            else {
+                if (el.className && typeof el.className === 'string'){
+                    const cls = el.className.trim().split(/\s+/).join('.');
+                    if (cls) part += '.'+cls;
+                }
+                const parent = el.parentNode;
+                if (parent){
+                    const sameTagSiblings = Array.from(parent.children).filter(ch => ch.nodeName === el.nodeName);
+                    if (sameTagSiblings.length > 1){
+                        const idx = Array.prototype.indexOf.call(parent.children, el) + 1;
+                        part += `:nth-child(${idx})`;
+                    }
+                }
+            }
+            parts.unshift(part);
+            el = el.parentNode;
+        }
+        parts.unshift('html');
+        return parts.join(' > ');
+    }
+
+    // masque/normalize certaines valeurs (emails, champs de formulaire)
+    function redact(v){
+        if (v == null) return v;
+        try {
+            const s = String(v);
+            // masque une partie d'un e‑mail
+            return s.replace(/([^\s@]+)@([^\s@]+)/, (m, a, b) => `${a.replace(/.(?=.{2})/g,'•')}@${b}`);
+        } catch(e){ return '[REDACTED]'; }
+    }
+
+    // résumé compact d'un node (évite d'enregistrer tout le contenu)
+    function summarizeNode(node){
+        if (!node) return null;
+        if (node.nodeType === 3) return { type: 'text', text: node.textContent.trim().slice(0,200) };
+        if (node.nodeType !== 1) return { type: 'other', nodeType: node.nodeType };
+        if (matchesIgnore(node)) return { type: 'ignored', selector: cssPath(node) };
+
+        const summary = { type: 'element', tag: node.tagName.toLowerCase(), selector: cssPath(node) };
+        try {
+            // copie limitée des attributs avec redaction des valeurs sensibles (value/placeholder)
+            const attrs = {};
+            for (let i = 0; i < node.attributes.length; i++){
+                const a = node.attributes[i];
+                const name = a.name;
+                let val = a.value;
+                if (name === 'value' || name === 'placeholder' || node.tagName.toLowerCase() === 'input' || node.tagName.toLowerCase() === 'textarea'){
+                    val = '[REDACTED]';
+                }
+                attrs[name] = (String(val).length > 200) ? String(val).slice(0,200) + '…' : val;
+            }
+            summary.attributes = attrs;
+            summary.text = (node.textContent || '').trim().slice(0,200);
+            // petite approximation de outerHTML (no children) pour contexte
+            const clone = node.cloneNode(false);
+            for (const k in attrs) clone.setAttribute(k, attrs[k]);
+            summary.html = (clone.outerHTML || '').slice(0,400);
+        } catch(e){}
+        return summary;
+    }
+
+    // batching / throttling des mutations pour ne pas spammer le journal
+    let batch = [];
+    let flushTimer = null;
+    function flushBatch(){
+        if (!batch.length) return;
+        const payload = { page: location.pathname, ts: Date.now(), mutations: batch.splice(0, 200) };
+        addEvent('dom_modify_detailed', 'Modifications DOM détectées', payload);
+        flushTimer = null;
+    }
+
+    const observer = new MutationObserver((mutations) => {
+        for (const m of mutations){
+            const item = { type: m.type, target: cssPath(m.target), time: Date.now() };
+            if (m.type === 'childList'){
+                item.addedCount = m.addedNodes.length;
+                item.removedCount = m.removedNodes.length;
+                item.added = Array.from(m.addedNodes).slice(0,6).map(summarizeNode);
+                item.removed = Array.from(m.removedNodes).slice(0,6).map(summarizeNode);
+            } else if (m.type === 'attributes'){
+                item.attributeName = m.attributeName;
+                item.oldValue = redact(m.oldValue);
+                try { item.newValue = redact(m.target.getAttribute(m.attributeName)); } catch(e){}
+            } else if (m.type === 'characterData'){
+                item.oldValue = (m.oldValue || '').slice(0,200);
+                item.newValue = (m.target.data || '').slice(0,200);
+            }
+            batch.push(item);
+        }
+        if (!flushTimer) flushTimer = setTimeout(flushBatch, 700);
+    });
+
+    observer.observe(document.documentElement || document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeOldValue: true,
+        characterData: true,
+        characterDataOldValue: true
+    });
+
+    // exposer pour debug / contrôle (peut disconnecter ou remplacer)
+    window.__domObserver = {
+        observer,
+        disconnect(){ observer.disconnect(); },
+        reconnect(){ observer.observe(document.documentElement || document.body, { subtree:true, childList:true, attributes:true, attributeOldValue:true, characterData:true, characterDataOldValue:true }); },
+        config: () => ({ IGNORE_SELECTORS: [...IGNORE_SELECTORS] })
+    };
+})();
+    </script>
 </body>
 </html>
-// ...existing code...
