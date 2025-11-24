@@ -187,21 +187,14 @@
     </div>
 
     <script>
-        // Année dynamique (conservée)
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // Gestionnaire de formulaire (SIMPLIFIÉ et conservé)
-        // La simulation de soumission est conservée, mais la logique de "journalisation" a été retirée.
         document.getElementById('contactForm').addEventListener('submit', function(e){
             e.preventDefault();
             const status = document.getElementById('formStatus');
             status.textContent = 'Transmission de données simulée. Réponse : [SUCCESS / 200]';
             this.reset();
         });
-        
-        // Suppression de tout le JavaScript lié au journal (stockage, rendu, toasts, simulateurs, observers, etc.)
-        // Seules ces deux fonctions de base restent.
-
     </script>
 </body>
 </html>
