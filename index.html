@@ -3,7 +3,14 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Page Cyber-Exemple - Encodeur Multi-mode</title>
+    <title>Page Cyber-Exemple - Encodeur Multi-mode + Chat Firebase</title>
+    
+    <!-- Chargement des librairies Firebase (CDN) -->
+    <!-- Le 'app' est nécessaire pour l'initialisation -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <!-- Le 'database' est nécessaire pour la Realtime Database -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    
     <style>
         /* BASE FUTURISTE (inchangée) */
         :root{
@@ -25,10 +32,9 @@
             color:var(--text);
             -webkit-font-smoothing:antialiased;
             line-height:1.6;
+            padding-bottom: 250px; 
         }
         .wrap{max-width:var(--max); margin:40px auto; padding:0 24px;}
-        
-        /* HEADER */
         header{display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:40px; border-bottom:1px solid var(--border); padding-bottom:15px;}
         .brand{display:flex; align-items:center; gap:16px;}
         .logo{width:54px; height:54px; background:var(--accent); border-radius:var(--radius); display:inline-block; box-shadow:var(--glow);}
@@ -37,8 +43,6 @@
         nav ul{list-style:none; padding:0; margin:0; display:flex; gap:20px; align-items:center;}
         nav a{color:var(--muted); text-decoration:none; font-weight:700; transition:color 0.3s;}
         nav a:hover{color:var(--accent); text-shadow:var(--glow);}
-
-        /* HERO */
         .hero{
             background:var(--card);
             padding:36px;
@@ -71,8 +75,6 @@
             background: #00ffdd;
             box-shadow: 0 0 20px rgba(0, 255, 196, 0.8);
         }
-        
-        /* GRID & CARDS */
         .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:20px; margin-bottom:30px;}
         .card{
             background:var(--card);
@@ -83,15 +85,13 @@
         }
         .card h3{margin:0 0 10px; font-size:1.15rem; color:var(--accent);}
         .muted{color:var(--muted); font-size:0.9rem}
-
-        /* FORM / CODE ENCODER STYLES */
         .encoder-controls{
             display:flex;
             gap:10px;
             margin-top:10px;
         }
         form{display:grid; gap:12px;}
-        input,textarea,select{ /* Ajout de select ici */
+        input,textarea,select{ 
             width:100%;
             padding:12px;
             border:1px solid var(--border);
@@ -108,7 +108,6 @@
             border-color:var(--accent);
             box-shadow:inset 0 0 10px rgba(0, 255, 196, 0.3);
         }
-        /* Style spécifique pour le champ de décalage */
         #shiftAmount{
             width: 80px;
             text-align: center;
@@ -122,24 +121,77 @@
             font-size: 0.8rem;
             word-break: break-all;
         }
-
-        /* Groupes de contrôles spécifiques aux modes */
         .mode-settings{
             margin-top: 15px;
             padding: 15px;
             border: 1px solid var(--border);
             border-radius: var(--radius);
         }
-
-        /* FOOTER */
         footer{margin:40px 0 20px; color:var(--muted); text-align:center; font-size:0.85rem; padding-top:15px; border-top:1px dashed var(--border);}
-        
-        /* MEDIA QUERIES */
+        #chatTerminal {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            background: var(--card); 
+            border-top: 2px solid var(--accent);
+            padding: 10px;
+            box-shadow: 0 -5px 20px rgba(0, 255, 196, 0.15);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+        #chatDisplay {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding-right: 10px; 
+            font-size: 0.8rem;
+            color: var(--text);
+        }
+        #chatDisplay::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chatDisplay::-webkit-scrollbar-thumb {
+            background-color: var(--muted);
+            border-radius: 4px;
+        }
+        .chat-message {
+            margin-bottom: 5px;
+            line-height: 1.3;
+        }
+        .chat-system {
+            color: var(--accent);
+        }
+        .chat-user {
+            color: #8b5cf6; 
+        }
+        #chatInputForm {
+            display: flex;
+            gap: 10px;
+        }
+        #chatInput {
+            flex-grow: 1;
+            padding: 8px;
+            height: auto;
+        }
+        #chatSendBtn {
+            padding: 8px 15px;
+            font-size: 0.8rem;
+            min-width: 80px;
+        }
         @media (max-width:600px){
             .hero{flex-direction:column; align-items:flex-start}
             header{flex-direction:column; align-items:flex-start}
             .wrap{padding:0 15px;}
             .encoder-controls{flex-direction: column;}
+            #chatTerminal {
+                height: 150px; 
+            }
+            body {
+                padding-bottom: 200px;
+            }
         }
     </style>
 </head>
@@ -246,23 +298,54 @@
         </main>
 
         <footer>
-            &copy; <span id="year"></span> CYBER-BASE — Prototype d'interface.
+            &copy; <span id="year"></span> CYBER-BASE — Protocole Firebase.
         </footer>
+    </div>
+    
+    <div id="chatTerminal">
+        <div id="chatDisplay">
+            <!-- Messages chargés par Firebase -->
+        </div>
+        <form id="chatInputForm">
+            <input type="text" id="chatInput" placeholder="Saisir le message chiffré ou le code..." required>
+            <button type="submit" class="btn" id="chatSendBtn">ENVOYER</button>
+        </form>
     </div>
 
     <script>
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // --- Constantes et Variables Globales ---
+        // --- CONFIGURATION FIREBASE (Vos clés) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDsKu6EavK4oEh4F2TS0EoB5HwzMxY7kgU",
+            authDomain: "chat-encode.firebaseapp.com",
+            databaseURL: "https://chat-encode-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "chat-encode",
+            storageBucket: "chat-encode.firebasestorage.app",
+            messagingSenderId: "812767464816",
+            appId: "1:812767464816:web:e46750b8cfda20063c93b5",
+            // measurementId n'est pas utilisé pour le chat de base
+        };
+        
+        // Initialiser Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        // Référence à la partie de la BDD (Realtime Database)
+        const messagesRef = firebase.database().ref('chat/messages');
+        
+        // Identifiant unique pour cette session (pour différencier VOS messages)
+        const userId = 'USER-' + Math.floor(Math.random() * 100000).toString(16).toUpperCase(); 
+
+        // --- Logique de l'Encodeur de Code (inchangée) ---
+        
         const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const ALPHABET_LENGTH = ALPHABET.length;
         const VOWELS_TO_NUM = {'A': '1', 'E': '2', 'I': '3', 'O': '4', 'U': '5'};
         const NUM_TO_VOWELS = {'1': 'A', '2': 'E', '3': 'I', '4': 'O', '5': 'U'};
         
-        let currentShift = 1; // Pour le mode César
-        let activeMode = 'caesar'; // Mode de chiffrement actif
+        let currentShift = 1; 
+        let activeMode = 'caesar';
 
-        // --- Éléments du DOM ---
         const cipherModeSelect = document.getElementById('cipherMode');
         const caesarSettingsDiv = document.getElementById('caesarSettings');
         const vowelSettingsDiv = document.getElementById('vowelSettings');
@@ -272,10 +355,6 @@
         const inputTextarea = document.getElementById('inputText');
         const outputTextarea = document.getElementById('outputText');
 
-
-        // --- Fonctions de Chiffrement ---
-
-        // Chiffre de César
         function getShiftedChar(index, shift) {
             return ALPHABET[(index + shift) % ALPHABET_LENGTH];
         }
@@ -283,11 +362,9 @@
         function transformCaesar(text, direction) {
             let result = '';
             const shift = direction === 'encode' ? currentShift : ALPHABET_LENGTH - currentShift;
-
             for (let i = 0; i < text.length; i++) {
                 const char = text[i].toUpperCase();
                 const index = ALPHABET.indexOf(char);
-                
                 if (index !== -1) {
                     result += getShiftedChar(index, shift);
                 } else {
@@ -297,35 +374,25 @@
             return result;
         }
 
-        // Substitution Voyelles-Numériques (A=1, E=2...)
         function transformVowelSub(text, direction) {
             let mapping;
             if (direction === 'encode') {
-                // Encode : Lettre -> Nombre (A=1)
                 mapping = VOWELS_TO_NUM;
             } else {
-                // Decode : Nombre -> Lettre (1=A)
                 mapping = NUM_TO_VOWELS;
             }
-
             let result = '';
             for (let i = 0; i < text.length; i++) {
                 const char = direction === 'encode' ? text[i].toUpperCase() : text[i];
-                
                 if (mapping[char]) {
-                    // Caractère trouvé dans la clé de mapping
                     result += mapping[char];
                 } else {
-                    // Consonne, chiffre non voyelle, ponctuation : inchangé
                     result += text[i];
                 }
             }
             return result;
         }
 
-        // --- Fonctions de Contrôle de l'Interface ---
-        
-        // Affiche/Cache les paramètres selon le mode
         function updateSettingsVisibility() {
             activeMode = cipherModeSelect.value;
             if (activeMode === 'caesar') {
@@ -338,21 +405,15 @@
             }
         }
         
-        // Met à jour l'affichage du décalage (Mode César)
         function updateShiftDisplay() {
             currentShiftDisplay.textContent = currentShift;
             aTargetDisplay.textContent = getShiftedChar(0, currentShift); 
         }
 
-        // --- Gestion des Événements ---
-        
-        // Changement de mode
         cipherModeSelect.addEventListener('change', updateSettingsVisibility);
 
-        // Activation du Décalage (Mode César)
         document.getElementById('saveShift').addEventListener('click', () => {
             const newShift = parseInt(shiftAmountInput.value);
-            
             if (newShift >= 0 && newShift < ALPHABET_LENGTH) {
                 currentShift = newShift;
                 updateShiftDisplay();
@@ -363,7 +424,6 @@
             }
         });
 
-        // Réinitialisation du Décalage (Mode César)
         document.getElementById('resetShift').addEventListener('click', () => {
             currentShift = 1;
             shiftAmountInput.value = currentShift;
@@ -371,33 +431,78 @@
             alert('Décalage réinitialisé à 1 (A → B).');
         });
         
-        // Bouton ENCODER
         document.getElementById('encodeBtn').addEventListener('click', () => {
             const inputText = inputTextarea.value;
             let result = '';
-            
             if (activeMode === 'caesar') {
                 result = transformCaesar(inputText, 'encode');
             } else if (activeMode === 'vowel_sub') {
                 result = transformVowelSub(inputText, 'encode');
             }
-            
             outputTextarea.value = result;
         });
 
-        // Bouton DÉCODER
         document.getElementById('decodeBtn').addEventListener('click', () => {
             const inputText = inputTextarea.value;
             let result = '';
-            
             if (activeMode === 'caesar') {
                 result = transformCaesar(inputText, 'decode');
             } else if (activeMode === 'vowel_sub') {
                 result = transformVowelSub(inputText, 'decode');
             }
-            
             outputTextarea.value = result;
         });
+
+
+        // --- Logique du Chat Terminal avec Firebase (Réel) ---
+        const chatDisplay = document.getElementById('chatDisplay');
+        const chatInput = document.getElementById('chatInput');
+        const chatInputForm = document.getElementById('chatInputForm');
+        
+        function appendMessage(message, type) {
+            const msgDiv = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            msgDiv.className = `chat-message chat-${type}`;
+            msgDiv.innerHTML = `[${timestamp}] ${message}`;
+            chatDisplay.appendChild(msgDiv);
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+
+        // Événement d'envoi du message (PUSH vers Firebase)
+        chatInputForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const userMessage = chatInput.value.trim();
+
+            if (userMessage) {
+                // PUSH le message dans la base de données Firebase
+                messagesRef.push({
+                    text: userMessage,
+                    senderId: userId,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                chatInput.value = ''; // Effacer le champ
+            }
+        });
+        
+        // Événement de réception des messages (écoute en temps réel)
+        // 'child_added' est déclenché pour chaque message existant et pour chaque nouveau message
+        // limitToLast(200) charge les 200 derniers messages pour éviter de surcharger
+        messagesRef.limitToLast(200).on('child_added', (snapshot) => {
+            const data = snapshot.val();
+            // Vérifie si l'expéditeur est l'utilisateur actuel
+            const isUser = data.senderId === userId;
+            const senderTag = isUser ? '[VOUS]' : `[ID:${data.senderId}]`;
+            // Utilise la classe 'user' pour vos messages, 'system' pour les autres
+            const type = isUser ? 'user' : 'system'; 
+            
+            // Affichage du message
+            appendMessage(`${senderTag} : ${data.text}`, type);
+        });
+
+        // Message de statut au démarrage
+        appendMessage(`[SYSTEM] : Canal configuré. Votre ID utilisateur est: ${userId}. Statut: EN LIGNE.`, 'system');
+
 
         // --- Initialisation ---
         shiftAmountInput.value = currentShift;
