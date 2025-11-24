@@ -13,15 +13,14 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 
         // ====================================================================================
-        // --- FIX POUR GITHUB PAGES ET ENVIRONNEMENT PUBLIC ---
+        // --- CONFIGURATION FIREBASE ---
         // Les identifiants Firebase que vous avez fournis sont intégrés ci-dessous.
         // ====================================================================================
 
         // 1. L'ID de l'application est utilisé pour les chemins Firestore.
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id-encoder';
         
-        // 2. CONFIGURATION FIREBASE PUBLIQUE (Vos identifiants spécifiques)
-        // Cette configuration est utilisée lorsque l'application n'est pas dans l'environnement d'aperçu (ex: GitHub Pages).
+        // 2. CONFIGURATION FIREBASE PUBLIQUE
         const publicFirebaseConfig = {
             apiKey: "AIzaSyDsKu6EavK4oEh4F2TS0EoB5HwzMxY7kgU",
             authDomain: "chat-encode.firebaseapp.com",
@@ -33,7 +32,6 @@
             measurementId: "G-SFLFFQ5HPD"
         };
         
-        // Utilisation de la configuration injectée (pour l'aperçu) ou de la configuration publique (pour les pages GitHub).
         const firebaseConfig = (typeof __firebase_config !== 'undefined' && __firebase_config) 
                                 ? JSON.parse(__firebase_config) 
                                 : publicFirebaseConfig;
@@ -41,16 +39,12 @@
         // 3. Le jeton d'authentification initial est ignoré en environnement public
         const initialAuthToken = null; 
         
-        // ====================================================================================
-        // --- FIN DE LA CONFIGURATION ---
-        // ====================================================================================
-
-        // Initialisation de Firebase avec la configuration (publique ou injectée)
+        // Initialisation de Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        // setLogLevel('Debug'); // Décommenter pour le debug
-
+        // setLogLevel('Debug'); // Décommenter pour un débogage Firebase très détaillé
+        
         let currentUserId = null;
         let publicAlias = null; 
         let isAuthReady = false;
@@ -68,6 +62,8 @@
         }
         
         async function setupUserIdentity(userId) {
+            console.log(`[DEBUG] Auth ID set: ${userId.substring(0, 8)}... Tentative de récupération/création de l'alias.`);
+            
             // Document privé pour stocker l'alias : /artifacts/{appId}/users/{userId}/profile/data
             const profileDocRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
             
@@ -91,7 +87,7 @@
 
                 appendMessage(`[SYSTEM] : Connecté. Alias Public: ${publicAlias}. ID Sécurisé: ${currentUserId.substring(0, 8)}... Statut: EN LIGNE.`, 'system');
                 
-                // Démarrer l'écoute des données
+                // Démarrer l'écoute des données après l'authentification
                 loadChatMessages();
                 loadHistory();
 
@@ -104,13 +100,10 @@
             }
         }
 
-        // Connexion à Firebase - Simplifiée pour l'environnement public
         async function authenticateUser() {
             try {
-                // Tente la connexion anonyme par défaut
                 await signInAnonymously(auth);
             } catch (error) {
-                // Cette erreur est corrigée car la clé API est maintenant valide
                 console.error("Erreur d'authentification Firebase:", error);
                 showMessageBox("ERREUR D'AUTH : Vérifiez la console et votre configuration Firebase.");
             }
@@ -151,7 +144,11 @@
         function loadChatMessages() {
             if (!currentUserId || !db) return;
 
-            const chatRef = collection(db, `artifacts/${appId}/public/data/chat_messages`);
+            const chatCollectionPath = `artifacts/${appId}/public/data/chat_messages`;
+            console.log(`[DEBUG] Démarrage du listener chat sur le chemin : ${chatCollectionPath}`);
+            
+            const chatRef = collection(db, chatCollectionPath);
+            // On ordonne par 'timestamp' pour s'assurer que les messages arrivent dans l'ordre.
             const chatQuery = query(chatRef, orderBy('timestamp'));
 
             onSnapshot(chatQuery, (snapshot) => {
@@ -162,11 +159,14 @@
                         
                         const senderTag = isUser ? `[${publicAlias}]` : `[${data.senderAlias || `ID:${data.senderId.substring(0, 8)}...`}]`;
                         const type = isUser ? 'user' : 'system'; 
+                        
+                        console.log(`[DEBUG] Nouvelle connexion : added. Message de ${senderTag}`);
+                        
                         appendMessage(`${senderTag} : ${data.text}`, type);
                     }
                 });
             }, (error) => {
-                console.error("Erreur d'écoute Firestore Chat:", error);
+                console.error("[ERREUR FIRESTORE] Échec de l'écoute du Chat:", error);
             });
         }
         
@@ -186,7 +186,7 @@
                         text: userMessage,
                         senderId: currentUserId,
                         senderAlias: publicAlias,
-                        timestamp: serverTimestamp()
+                        timestamp: serverTimestamp() // Utilisation du timestamp serveur
                     });
                     chatInput.value = ''; 
                 } catch (error) {
