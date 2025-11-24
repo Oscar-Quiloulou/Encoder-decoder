@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Page Cyber-Exemple - Encodeur</title>
+    <title>Page Cyber-Exemple - Encodeur Multi-mode</title>
     <style>
         /* BASE FUTURISTE (inchangée) */
         :root{
@@ -91,7 +91,7 @@
             margin-top:10px;
         }
         form{display:grid; gap:12px;}
-        input,textarea{
+        input,textarea,select{ /* Ajout de select ici */
             width:100%;
             padding:12px;
             border:1px solid var(--border);
@@ -103,10 +103,16 @@
             box-shadow:inset 0 0 5px rgba(0, 255, 196, 0.1);
             transition:border-color 0.3s;
         }
-        input:focus,textarea:focus{
+        input:focus,textarea:focus,select:focus{
             outline:none;
             border-color:var(--accent);
             box-shadow:inset 0 0 10px rgba(0, 255, 196, 0.3);
+        }
+        /* Style spécifique pour le champ de décalage */
+        #shiftAmount{
+            width: 80px;
+            text-align: center;
+            display: inline-block;
         }
         .cipher-info{
             background: var(--bg);
@@ -115,6 +121,14 @@
             border-radius: var(--radius);
             font-size: 0.8rem;
             word-break: break-all;
+        }
+
+        /* Groupes de contrôles spécifiques aux modes */
+        .mode-settings{
+            margin-top: 15px;
+            padding: 15px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
         }
 
         /* FOOTER */
@@ -176,35 +190,55 @@
             </section>
 
             <section id="encoder" class="card" aria-labelledby="encoder-title">
-                <h3 id="encoder-title">ENCODEUR DE SÉQUENCE DE CARACTÈRES</h3>
+                <h3 id="encoder-title">MODULE DE CHIFFREMENT DE PROTOCOLE</h3>
                 
-                <form id="cipherForm">
+                <form id="modeForm">
                     <label>
-                        <span class="muted">Clé de Transformation Personnalisée (26 caractères)</span>
-                        <input type="text" id="customCipher" placeholder="Par défaut : BCDEFGHIJKLMNOPQRSTUVWXYZ A" maxlength="26" pattern="[A-Za-z]{26}">
+                        <span class="muted">Sélection du Mode de Transformation</span>
+                        <select id="cipherMode">
+                            <option value="caesar">01. Décalage Alphabétique (CÉSAR)</option>
+                            <option value="vowel_sub">02. Substitution Voyelles-Numériques (A=1, E=2...)</option>
+                        </select>
                     </label>
-                    <div class="cipher-info">
-                        **Clé Active :** <span id="currentCipherDisplay" class="muted">BCDEFGHIJKLMNOPQRSTUVWXYZ A</span> | **Alphabet :** ABCDEFGHIJKLMNOPQRSTUVWXYZ
-                    </div>
-                    <div class="encoder-controls">
-                        <button type="button" class="btn" id="saveCipher">ACTIVER CLÉ</button>
-                        <button type="button" class="btn" id="resetCipher" style="background:#4a5568; box-shadow:none;">RÉINITIALISER CLÉ</button>
-                    </div>
                 </form>
 
+                <div id="caesarSettings" class="mode-settings">
+                    <h4 style="margin-top:0; color:var(--accent); font-size:1rem;">PARAMÈTRES CÉSAR</h4>
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <span class="muted" style="white-space: nowrap;">Décalage de la Clé (0-25) :</span>
+                        <input type="number" id="shiftAmount" value="1" min="0" max="25" style="width: 80px;">
+                    </label>
+                    
+                    <div class="encoder-controls" style="margin-top: 15px;">
+                        <button type="button" class="btn" id="saveShift">ACTIVER DÉCALAGE</button>
+                        <button type="button" class="btn" id="resetShift" style="background:#4a5568; box-shadow:none;">RÉINITIALISER (DÉCALAGE 1)</button>
+                    </div>
+                    
+                    <div class="cipher-info" style="margin-top: 15px;">
+                        **Clé Active :** **Décalage** <span id="currentShiftDisplay" class="muted">1</span> | **A →** <span id="aTargetDisplay" class="muted">B</span>
+                    </div>
+                </div>
+
+                <div id="vowelSettings" class="mode-settings" style="display: none;">
+                    <h4 style="margin-top:0; color:var(--accent); font-size:1rem;">PARAMÈTRES VOYELLES</h4>
+                    <div class="cipher-info">
+                        **Règles de Substitution :** A=1, E=2, I=3, O=4, U=5 | Les consonnes et autres caractères sont inchangés.
+                    </div>
+                </div>
+                
                 <hr style="border-color: var(--border); margin: 20px 0;">
 
                 <form id="codeForm">
                     <label>
-                        <span class="muted">Séquence d'Entrée (TEXTE CLAIR)</span>
-                        <textarea id="inputText" rows="4" placeholder="Tapez le message à encoder ici..."></textarea>
+                        <span class="muted">Séquence d'Entrée (TEXTE CLAIR / CODE)</span>
+                        <textarea id="inputText" rows="4" placeholder="Tapez le message à transformer ici..."></textarea>
                     </label>
                     <div class="encoder-controls">
                         <button type="button" class="btn" id="encodeBtn">ENCODER SÉQUENCE</button>
                         <button type="button" class="btn" id="decodeBtn" style="background:#8b5cf6; box-shadow:0 0 15px rgba(139, 92, 246, 0.4);">DÉCODER SÉQUENCE</button>
                     </div>
                     <label>
-                        <span class="muted">Séquence de Sortie (CODE TRANSFORMÉ)</span>
+                        <span class="muted">Séquence de Sortie (CODE TRANSFORMÉ / TEXTE CLAIR)</span>
                         <textarea id="outputText" rows="4" readonly placeholder="Le résultat apparaîtra ici..."></textarea>
                     </label>
                 </form>
@@ -219,71 +253,155 @@
     <script>
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // --- Logique de l'Encodeur de Code (inchangée) ---
-        
+        // --- Constantes et Variables Globales ---
         const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        const DEFAULT_CIPHER = 'BCDEFGHIJKLMNOPQRSTUVWXYZ A';
-        let currentCipher = DEFAULT_CIPHER;
+        const ALPHABET_LENGTH = ALPHABET.length;
+        const VOWELS_TO_NUM = {'A': '1', 'E': '2', 'I': '3', 'O': '4', 'U': '5'};
+        const NUM_TO_VOWELS = {'1': 'A', '2': 'E', '3': 'I', '4': 'O', '5': 'U'};
+        
+        let currentShift = 1; // Pour le mode César
+        let activeMode = 'caesar'; // Mode de chiffrement actif
 
-        const customCipherInput = document.getElementById('customCipher');
-        const currentCipherDisplay = document.getElementById('currentCipherDisplay');
+        // --- Éléments du DOM ---
+        const cipherModeSelect = document.getElementById('cipherMode');
+        const caesarSettingsDiv = document.getElementById('caesarSettings');
+        const vowelSettingsDiv = document.getElementById('vowelSettings');
+        const shiftAmountInput = document.getElementById('shiftAmount');
+        const currentShiftDisplay = document.getElementById('currentShiftDisplay');
+        const aTargetDisplay = document.getElementById('aTargetDisplay');
+        const inputTextarea = document.getElementById('inputText');
+        const outputTextarea = document.getElementById('outputText');
 
-        function updateCipherDisplay() {
-            currentCipherDisplay.textContent = currentCipher;
+
+        // --- Fonctions de Chiffrement ---
+
+        // Chiffre de César
+        function getShiftedChar(index, shift) {
+            return ALPHABET[(index + shift) % ALPHABET_LENGTH];
         }
 
-        function transformText(text, source, target) {
+        function transformCaesar(text, direction) {
             let result = '';
-            const upperText = text.toUpperCase();
-            
-            for (let i = 0; i < upperText.length; i++) {
-                const char = upperText[i];
-                const index = source.indexOf(char);
+            const shift = direction === 'encode' ? currentShift : ALPHABET_LENGTH - currentShift;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i].toUpperCase();
+                const index = ALPHABET.indexOf(char);
                 
                 if (index !== -1) {
-                    result += target[index];
+                    result += getShiftedChar(index, shift);
                 } else {
                     result += text[i];
                 }
             }
             return result;
         }
-        
-        document.getElementById('encodeBtn').addEventListener('click', () => {
-            const inputText = document.getElementById('inputText').value;
-            const outputText = document.getElementById('outputText');
-            outputText.value = transformText(inputText, ALPHABET, currentCipher);
-        });
 
-        document.getElementById('decodeBtn').addEventListener('click', () => {
-            const inputText = document.getElementById('inputText').value;
-            const outputText = document.getElementById('outputText');
-            outputText.value = transformText(inputText, currentCipher, ALPHABET);
-        });
-
-        document.getElementById('saveCipher').addEventListener('click', () => {
-            const newCipher = customCipherInput.value.toUpperCase();
-            const isUnique = new Set(newCipher.replace(/[^A-Z]/g, '')).size === 26;
-            
-            if (newCipher.length === 26 && isUnique) {
-                currentCipher = newCipher;
-                updateCipherDisplay();
-                alert('Clé de chiffrement activée avec succès !');
+        // Substitution Voyelles-Numériques (A=1, E=2...)
+        function transformVowelSub(text, direction) {
+            let mapping;
+            if (direction === 'encode') {
+                // Encode : Lettre -> Nombre (A=1)
+                mapping = VOWELS_TO_NUM;
             } else {
-                alert('ERREUR : La clé doit être composée de 26 lettres uniques (A-Z) et avoir une longueur exacte de 26.');
-                customCipherInput.value = currentCipher;
+                // Decode : Nombre -> Lettre (1=A)
+                mapping = NUM_TO_VOWELS;
+            }
+
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                const char = direction === 'encode' ? text[i].toUpperCase() : text[i];
+                
+                if (mapping[char]) {
+                    // Caractère trouvé dans la clé de mapping
+                    result += mapping[char];
+                } else {
+                    // Consonne, chiffre non voyelle, ponctuation : inchangé
+                    result += text[i];
+                }
+            }
+            return result;
+        }
+
+        // --- Fonctions de Contrôle de l'Interface ---
+        
+        // Affiche/Cache les paramètres selon le mode
+        function updateSettingsVisibility() {
+            activeMode = cipherModeSelect.value;
+            if (activeMode === 'caesar') {
+                caesarSettingsDiv.style.display = 'block';
+                vowelSettingsDiv.style.display = 'none';
+                updateShiftDisplay();
+            } else if (activeMode === 'vowel_sub') {
+                caesarSettingsDiv.style.display = 'none';
+                vowelSettingsDiv.style.display = 'block';
+            }
+        }
+        
+        // Met à jour l'affichage du décalage (Mode César)
+        function updateShiftDisplay() {
+            currentShiftDisplay.textContent = currentShift;
+            aTargetDisplay.textContent = getShiftedChar(0, currentShift); 
+        }
+
+        // --- Gestion des Événements ---
+        
+        // Changement de mode
+        cipherModeSelect.addEventListener('change', updateSettingsVisibility);
+
+        // Activation du Décalage (Mode César)
+        document.getElementById('saveShift').addEventListener('click', () => {
+            const newShift = parseInt(shiftAmountInput.value);
+            
+            if (newShift >= 0 && newShift < ALPHABET_LENGTH) {
+                currentShift = newShift;
+                updateShiftDisplay();
+                alert(`Décalage activé : A → ${getShiftedChar(0, currentShift)}.`);
+            } else {
+                alert('ERREUR : Le décalage doit être un nombre entier entre 0 et 25.');
+                shiftAmountInput.value = currentShift;
             }
         });
 
-        document.getElementById('resetCipher').addEventListener('click', () => {
-            currentCipher = DEFAULT_CIPHER;
-            customCipherInput.value = DEFAULT_CIPHER;
-            updateCipherDisplay();
-            alert('Clé de chiffrement réinitialisée à la valeur par défaut.');
+        // Réinitialisation du Décalage (Mode César)
+        document.getElementById('resetShift').addEventListener('click', () => {
+            currentShift = 1;
+            shiftAmountInput.value = currentShift;
+            updateShiftDisplay();
+            alert('Décalage réinitialisé à 1 (A → B).');
         });
         
-        customCipherInput.value = DEFAULT_CIPHER;
-        updateCipherDisplay();
+        // Bouton ENCODER
+        document.getElementById('encodeBtn').addEventListener('click', () => {
+            const inputText = inputTextarea.value;
+            let result = '';
+            
+            if (activeMode === 'caesar') {
+                result = transformCaesar(inputText, 'encode');
+            } else if (activeMode === 'vowel_sub') {
+                result = transformVowelSub(inputText, 'encode');
+            }
+            
+            outputTextarea.value = result;
+        });
+
+        // Bouton DÉCODER
+        document.getElementById('decodeBtn').addEventListener('click', () => {
+            const inputText = inputTextarea.value;
+            let result = '';
+            
+            if (activeMode === 'caesar') {
+                result = transformCaesar(inputText, 'decode');
+            } else if (activeMode === 'vowel_sub') {
+                result = transformVowelSub(inputText, 'decode');
+            }
+            
+            outputTextarea.value = result;
+        });
+
+        // --- Initialisation ---
+        shiftAmountInput.value = currentShift;
+        updateSettingsVisibility();
     </script>
 </body>
 </html>
