@@ -34,15 +34,8 @@
         input,textarea{width:100%; padding:10px; border:1px solid #e6eef8; border-radius:8px; font:inherit}
         footer{margin:28px 0; color:var(--muted); text-align:center; font-size:0.9rem}
 
-        /* Nouveaux styles pour le journal et les toasts */
-        .events-controls{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
-        .event-list{max-height:280px; overflow:auto; padding:8px; border-radius:8px; border:1px solid #eef2fb; background:#fbfdff}
-        .event-item{padding:8px; border-bottom:1px solid #eef3fb; font-size:.9rem}
-        .event-item:last-child{border-bottom:0}
-        .event-meta{color:var(--muted); font-size:.8rem}
-        .toast-wrap{position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px}
-        .toast{background:#0f172a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 6px 20px rgba(15,23,42,.18);opacity:.98;font-weight:600}
-        @media (max-width:560px){ .hero{flex-direction:column; align-items:flex-start} header{flex-direction:column; align-items:flex-start} .toast-wrap{right:8px;left:8px} }
+        /* Suppression des styles pour le journal et les toasts */
+        @media (max-width:560px){ .hero{flex-direction:column; align-items:flex-start} header{flex-direction:column; align-items:flex-start} }
     </style>
 </head>
 <body>
@@ -111,287 +104,29 @@
                 </form>
             </section>
 
-            <!-- NOUVEL ESPACE: Journal des événements -->
-            <section id="events" class="card" aria-labelledby="events-title" style="margin-top:18px">
-                <h3 id="events-title">Journal des événements</h3>
-
-                <div class="events-controls" aria-hidden="false">
-                    <button class="btn" id="simOverheat">Simuler surchauffe</button>
-                    <button class="btn" id="simOverload">Simuler surcharge</button>
-                    <button class="btn" id="simModify" style="background:#10b981">Simuler modification</button>
-                    <button class="btn" id="clearLog" style="background:#64748b">Effacer le journal</button>
-                    <button class="btn" id="exportLog" style="background:#111827">Exporter</button>
-                </div>
-
-                <div id="eventList" class="event-list" role="log" aria-live="polite"></div>
-                <div class="muted" style="margin-top:8px; font-size:.85rem">Les événements sont stockés localement (localStorage) et persistants.</div>
-            </section>
-        </main>
+            </main>
 
         <footer>
             &copy; <span id="year"></span> Mon Site — Exemple de page simple.
         </footer>
     </div>
 
-    <div class="toast-wrap" id="toastWrap" aria-hidden="true"></div>
-
     <script>
         // année dynamique
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // --- EXISTING FORM HANDLER (modifié pour logger) ---
+        // Le gestionnaire de formulaire est conservé, mais le code d'ajout d'événement (addEvent) est retiré
         document.getElementById('contactForm').addEventListener('submit', function(e){
             e.preventDefault();
             const status = document.getElementById('formStatus');
             status.textContent = 'Merci ! Votre message a été pris en compte (simulation).';
-            addEvent('contact_submit', 'Formulaire de contact soumis');
             this.reset();
         });
-
-        // --- Journal d'événements: stockage, rendu, toasts ---
-        const STORAGE_KEY = 'siteEvents:v1';
-        let eventStore = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-
-        function persist() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(eventStore));
-        }
-
-        function formatTime(ts) {
-            return new Date(ts).toLocaleString();
-        }
-
-        function addEvent(type, message, meta = {}) {
-            const ev = { id: Date.now() + Math.random().toString(36).slice(2,8), ts: Date.now(), type, message, meta };
-            eventStore.unshift(ev); // newest first
-            // keep reasonable size
-            if (eventStore.length > 500) eventStore.length = 500;
-            persist();
-            renderEvents();
-            showToast(type, message);
-            return ev;
-        }
-
-        function renderEvents() {
-            const el = document.getElementById('eventList');
-            if (!el) return;
-            el.innerHTML = eventStore.map(ev => {
-                const metaStr = ev.meta && Object.keys(ev.meta).length ? JSON.stringify(ev.meta) : '';
-                return `<div class="event-item" title="${escapeHtml(ev.message)}"><div><strong>[${escapeHtml(ev.type)}]</strong> ${escapeHtml(ev.message)}</div><div class="event-meta">${formatTime(ev.ts)} ${metaStr ? '· '+escapeHtml(metaStr) : ''}</div></div>`;
-            }).join('');
-        }
-
-        function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-        function clearLog() {
-            eventStore = [];
-            persist();
-            renderEvents();
-            showToast('log_cleared','Journal effacé');
-        }
-
-        function exportLog() {
-            const blob = new Blob([JSON.stringify(eventStore, null, 2)], {type:'application/json'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `events-${new Date().toISOString()}.json`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-            showToast('export','Journal exporté');
-        }
-
-        // petits toasts d'info
-        function showToast(type, message, ms = 4000) {
-            const wrap = document.getElementById('toastWrap');
-            if (!wrap) return;
-            const d = document.createElement('div');
-            d.className = 'toast';
-            d.textContent = `${type}: ${message}`;
-            wrap.prepend(d);
-            wrap.setAttribute('aria-hidden','false');
-            setTimeout(()=> {
-                d.style.transition = 'opacity .3s, transform .3s';
-                d.style.opacity = '0';
-                d.style.transform = 'translateY(-8px)';
-            }, ms - 350);
-            setTimeout(()=> { d.remove(); if (!wrap.children.length) wrap.setAttribute('aria-hidden','true'); }, ms);
-        }
-
-        // Exposition globale pour déclencher des événements depuis la console ou d'autres scripts
-        window.reportEvent = addEvent;
-
-        // Boutons simulateurs
-        document.getElementById('simOverheat').addEventListener('click', ()=> addEvent('surchauffe','Surchauffe détectée (simulation)', {level:'critical'}));
-        document.getElementById('simOverload').addEventListener('click', ()=> addEvent('surcharge','Surcharge détectée (simulation)', {queue:'requests', load:95}));
-        document.getElementById('simModify').addEventListener('click', ()=> addEvent('modification','Modification du contenu détectée (simulation)', {path:location.pathname}));
-
-        document.getElementById('clearLog').addEventListener('click', clearLog);
-        document.getElementById('exportLog').addEventListener('click', exportLog);
-
-        // Hooks automatiques utiles
-        window.addEventListener('error', (ev) => {
-            addEvent('error', ev.message, {source: ev.filename, lineno: ev.lineno});
-        });
-
-        window.addEventListener('unhandledrejection', (ev) => {
-            addEvent('promise_rejection', String(ev.reason || 'unknown'), {});
-        });
-
-        window.addEventListener('online', ()=> addEvent('network','Navigateur en ligne'));
-        window.addEventListener('offline', ()=> addEvent('network','Navigateur hors-ligne'));
-        document.addEventListener('visibilitychange', ()=> addEvent('visibility', document.hidden ? 'Page cachée' : 'Page visible'));
-
-        // Observer de modifications DOM (déclenche un évènement consolidé, throttlé)
-        (function(){
-            let timeout;
-            const obs = new MutationObserver(() => {
-                if (timeout) return;
-                timeout = setTimeout(()=> {
-                    addEvent('dom_modify','Modification du DOM détectée');
-                    timeout = null;
-                }, 800);
-            });
-            obs.observe(document.body, { subtree:true, childList:true, attributes:false, characterData:false });
-            // Exposer pour debug si besoin
-            window.__domObserver = obs;
-        })();
-
-        // initial render
-        renderEvents();
-
-        // petit message initial si vide
-        if (!eventStore.length) addEvent('start','Journal démarré');
+        
+        // Suppression de tout le code JavaScript lié au journal (STORAGE_KEY, persist, formatTime, addEvent, renderEvents, escapeHtml, clearLog, exportLog)
+        // et aux toasts (showToast), ainsi que l'observation des événements (simulations, error, online/offline, visibilitychange, DOM observer).
+        // Seuls le script de l'année et le gestionnaire de formulaire simplifié restent.
 
     </script>
-    <script>
-        (function(){
-    // configuration — selectors à ignorer / redacter
-    const IGNORE_SELECTORS = ['input[type="password"]', 'input[type="email"]', 'textarea', 'script', 'style', '[data-no-log]'];
-
-    function matchesIgnore(node){
-        if (!node || node.nodeType !== 1) return false;
-        try { return IGNORE_SELECTORS.some(s => node.matches && node.matches(s)); }
-        catch(e){ return false; }
-    }
-
-    // construit un chemin CSS simple et lisible vers l'élément
-    function cssPath(el){
-        if (!el || el.nodeType !== 1) return '';
-        const parts = [];
-        while (el && el.nodeType === 1 && el !== document.body && el !== document.documentElement){
-            let part = el.nodeName.toLowerCase();
-            if (el.id) part += '#'+el.id;
-            else {
-                if (el.className && typeof el.className === 'string'){
-                    const cls = el.className.trim().split(/\s+/).join('.');
-                    if (cls) part += '.'+cls;
-                }
-                const parent = el.parentNode;
-                if (parent){
-                    const sameTagSiblings = Array.from(parent.children).filter(ch => ch.nodeName === el.nodeName);
-                    if (sameTagSiblings.length > 1){
-                        const idx = Array.prototype.indexOf.call(parent.children, el) + 1;
-                        part += `:nth-child(${idx})`;
-                    }
-                }
-            }
-            parts.unshift(part);
-            el = el.parentNode;
-        }
-        parts.unshift('html');
-        return parts.join(' > ');
-    }
-
-    // masque/normalize certaines valeurs (emails, champs de formulaire)
-    function redact(v){
-        if (v == null) return v;
-        try {
-            const s = String(v);
-            // masque une partie d'un e‑mail
-            return s.replace(/([^\s@]+)@([^\s@]+)/, (m, a, b) => `${a.replace(/.(?=.{2})/g,'•')}@${b}`);
-        } catch(e){ return '[REDACTED]'; }
-    }
-
-    // résumé compact d'un node (évite d'enregistrer tout le contenu)
-    function summarizeNode(node){
-        if (!node) return null;
-        if (node.nodeType === 3) return { type: 'text', text: node.textContent.trim().slice(0,200) };
-        if (node.nodeType !== 1) return { type: 'other', nodeType: node.nodeType };
-        if (matchesIgnore(node)) return { type: 'ignored', selector: cssPath(node) };
-
-        const summary = { type: 'element', tag: node.tagName.toLowerCase(), selector: cssPath(node) };
-        try {
-            // copie limitée des attributs avec redaction des valeurs sensibles (value/placeholder)
-            const attrs = {};
-            for (let i = 0; i < node.attributes.length; i++){
-                const a = node.attributes[i];
-                const name = a.name;
-                let val = a.value;
-                if (name === 'value' || name === 'placeholder' || node.tagName.toLowerCase() === 'input' || node.tagName.toLowerCase() === 'textarea'){
-                    val = '[REDACTED]';
-                }
-                attrs[name] = (String(val).length > 200) ? String(val).slice(0,200) + '…' : val;
-            }
-            summary.attributes = attrs;
-            summary.text = (node.textContent || '').trim().slice(0,200);
-            // petite approximation de outerHTML (no children) pour contexte
-            const clone = node.cloneNode(false);
-            for (const k in attrs) clone.setAttribute(k, attrs[k]);
-            summary.html = (clone.outerHTML || '').slice(0,400);
-        } catch(e){}
-        return summary;
-    }
-
-    // batching / throttling des mutations pour ne pas spammer le journal
-    let batch = [];
-    let flushTimer = null;
-    function flushBatch(){
-        if (!batch.length) return;
-        const payload = { page: location.pathname, ts: Date.now(), mutations: batch.splice(0, 200) };
-        addEvent('dom_modify_detailed', 'Modifications DOM détectées', payload);
-        flushTimer = null;
-    }
-
-    const observer = new MutationObserver((mutations) => {
-        for (const m of mutations){
-            const item = { type: m.type, target: cssPath(m.target), time: Date.now() };
-            if (m.type === 'childList'){
-                item.addedCount = m.addedNodes.length;
-                item.removedCount = m.removedNodes.length;
-                item.added = Array.from(m.addedNodes).slice(0,6).map(summarizeNode);
-                item.removed = Array.from(m.removedNodes).slice(0,6).map(summarizeNode);
-            } else if (m.type === 'attributes'){
-                item.attributeName = m.attributeName;
-                item.oldValue = redact(m.oldValue);
-                try { item.newValue = redact(m.target.getAttribute(m.attributeName)); } catch(e){}
-            } else if (m.type === 'characterData'){
-                item.oldValue = (m.oldValue || '').slice(0,200);
-                item.newValue = (m.target.data || '').slice(0,200);
-            }
-            batch.push(item);
-        }
-        if (!flushTimer) flushTimer = setTimeout(flushBatch, 700);
-    });
-
-    observer.observe(document.documentElement || document.body, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeOldValue: true,
-        characterData: true,
-        characterDataOldValue: true
-    });
-
-    // exposer pour debug / contrôle (peut disconnecter ou remplacer)
-    window.__domObserver = {
-        observer,
-        disconnect(){ observer.disconnect(); },
-        reconnect(){ observer.observe(document.documentElement || document.body, { subtree:true, childList:true, attributes:true, attributeOldValue:true, characterData:true, characterDataOldValue:true }); },
-        config: () => ({ IGNORE_SELECTORS: [...IGNORE_SELECTORS] })
-    };
-})();
-    </script>
-</body>
+    </body>
 </html>
