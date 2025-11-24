@@ -3,13 +3,405 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Page Cyber-Exemple - Encodeur Multi-mode + Chat Firebase</title>
+    <title>Page Cyber-Exemple - Encodeur Multi-mode + Chat & Historique</title>
     
-    <!-- Chargement des librairies Firebase (CDN) -->
-    <!-- Le 'app' est nécessaire pour l'initialisation -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <!-- Le 'database' est nécessaire pour la Realtime Database -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <!-- Chargement des librairies Firebase (CDN) - Mise à jour pour AUTH et FIRESTORE -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, onSnapshot, collection, query, orderBy, serverTimestamp, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+
+        // IMPORTANT : Utilisation des variables globales fournies par l'environnement
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Configuration Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        // setLogLevel('Debug'); // Décommenter pour le debug
+
+        let currentUserId = null;
+        let publicAlias = null; // Nouvel alias public
+        let isAuthReady = false;
+        
+        // Listes pour générer l'alias par défaut
+        const ADJECTIVES = ["Agent", "Phantom", "Cipher", "Delta", "Echo", "Ghost", "Matrix", "Vortex", "Rogue", "Sigma"];
+        const NOUNS = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero"];
+
+        // --- AUTHENTIFICATION ET INITIALISATION ---
+        
+        function generatePublicAlias() {
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const num = Math.floor(Math.random() * 90) + 10; // Numéro aléatoire à deux chiffres
+            return `${adj}-${num}`;
+        }
+        
+        async function setupUserIdentity(userId) {
+            // Document privé pour stocker l'alias : /artifacts/{appId}/users/{userId}/profile/data
+            const profileDocRef = doc(db, `artifacts/${appId}/users/${userId}/profile/data`);
+            
+            try {
+                const docSnap = await getDoc(profileDocRef);
+                
+                if (docSnap.exists() && docSnap.data().alias) {
+                    // L'utilisateur a déjà un alias
+                    publicAlias = docSnap.data().alias;
+                } else {
+                    // Première connexion, générer et enregistrer un nouvel alias
+                    publicAlias = generatePublicAlias();
+                    await setDoc(profileDocRef, { 
+                        alias: publicAlias,
+                        createdAt: serverTimestamp()
+                    });
+                }
+                
+                // Mettre à jour l'affichage après avoir trouvé/créé l'alias
+                document.getElementById('currentUserDisplay').textContent = publicAlias;
+                document.getElementById('profileAliasInput').value = publicAlias;
+                document.getElementById('secureIDDisplay').textContent = currentUserId;
+
+                appendMessage(`[SYSTEM] : Connecté. Alias Public: ${publicAlias}. ID Sécurisé: ${currentUserId.substring(0, 8)}... Statut: EN LIGNE.`, 'system');
+                
+                // Démarrer l'écoute des données
+                loadChatMessages();
+                loadHistory();
+
+            } catch (error) {
+                console.error("Erreur de configuration de l'identité utilisateur:", error);
+                // Utiliser un fallback si Firestore échoue
+                publicAlias = 'ANONYME-FAIL';
+                appendMessage(`[SYSTEM] : Erreur. ID de secours: ${currentUserId.substring(0, 8)}... Statut: EN LIGNE.`, 'system');
+                loadChatMessages();
+                loadHistory();
+            }
+        }
+
+        // Connexion à Firebase
+        async function authenticateUser() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Erreur d'authentification Firebase:", error);
+            }
+        }
+        
+        // Écoute des changements d'état d'authentification
+        onAuthStateChanged(auth, (user) => {
+            isAuthReady = true;
+            if (user) {
+                currentUserId = user.uid;
+                window.db = db; // Rendre db disponible globalement pour la logique
+                window.currentUserId = currentUserId; // Rendre l'ID disponible
+                
+                // Configurer l'identité (alias)
+                setupUserIdentity(user.uid);
+
+            } else {
+                currentUserId = 'ANONYMOUS';
+                appendMessage(`[SYSTEM] : Connexion en cours...`, 'system');
+                authenticateUser();
+            }
+        });
+        
+        // --- LOGIQUE CHAT ---
+        
+        const chatDisplay = document.getElementById('chatDisplay');
+        const chatInputForm = document.getElementById('chatInputForm');
+        const chatInput = document.getElementById('chatInput');
+
+        window.appendMessage = function(message, type) {
+            const msgDiv = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            msgDiv.className = `chat-message chat-${type}`;
+            msgDiv.innerHTML = `[${timestamp}] ${message}`;
+            chatDisplay.appendChild(msgDiv);
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+
+        function loadChatMessages() {
+            if (!currentUserId || !db) return;
+
+            const chatRef = collection(db, `artifacts/${appId}/public/data/chat_messages`);
+            const chatQuery = query(chatRef, orderBy('timestamp'));
+
+            onSnapshot(chatQuery, (snapshot) => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const data = change.doc.data();
+                        const isUser = data.senderId === currentUserId;
+                        
+                        const senderTag = isUser ? `[${publicAlias}]` : `[${data.senderAlias || `ID:${data.senderId.substring(0, 8)}...`}]`;
+                        const type = isUser ? 'user' : 'system'; 
+                        appendMessage(`${senderTag} : ${data.text}`, type);
+                    }
+                });
+            }, (error) => {
+                console.error("Erreur d'écoute Firestore Chat:", error);
+            });
+        }
+        
+        chatInputForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            if (!currentUserId || !db || !publicAlias) {
+                showMessageBox("Erreur : Connexion en cours. Veuillez patienter.");
+                return;
+            }
+            
+            const userMessage = chatInput.value.trim();
+
+            if (userMessage) {
+                const chatRef = collection(db, `artifacts/${appId}/public/data/chat_messages`);
+                try {
+                    await addDoc(chatRef, {
+                        text: userMessage,
+                        senderId: currentUserId,
+                        senderAlias: publicAlias,
+                        timestamp: serverTimestamp()
+                    });
+                    chatInput.value = ''; 
+                } catch (error) {
+                    showMessageBox("Erreur d'envoi du message.");
+                    console.error("Erreur d'ajout doc Firestore:", error);
+                }
+            }
+        });
+
+        // --- LOGIQUE ENCODEUR ET HISTORIQUE ---
+        
+        const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const ALPHABET_LENGTH = ALPHABET.length;
+        const VOWELS_TO_NUM = {'A': '1', 'E': '2', 'I': '3', 'O': '4', 'U': '5'};
+        const NUM_TO_VOWELS = {'1': 'A', '2': 'E', '3': 'I', '4': 'O', '5': 'U'};
+        
+        let currentShift = 1; 
+        let activeMode = 'caesar';
+
+        const cipherModeSelect = document.getElementById('cipherMode');
+        const caesarSettingsDiv = document.getElementById('caesarSettings');
+        const vowelSettingsDiv = document.getElementById('vowelSettings');
+        const shiftAmountInput = document.getElementById('shiftAmount');
+        const currentShiftDisplay = document.getElementById('currentShiftDisplay');
+        const aTargetDisplay = document.getElementById('aTargetDisplay');
+        const inputTextarea = document.getElementById('inputText');
+        const outputTextarea = document.getElementById('outputText');
+        const historyList = document.getElementById('historyList'); 
+
+        function getShiftedChar(index, shift) {
+            return ALPHABET[(index + shift) % ALPHABET_LENGTH];
+        }
+
+        function transformCaesar(text, direction) {
+            let result = '';
+            const shift = direction === 'encode' ? currentShift : ALPHABET_LENGTH - currentShift;
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i].toUpperCase();
+                const index = ALPHABET.indexOf(char);
+                if (index !== -1) {
+                    result += getShiftedChar(index, shift);
+                } else {
+                    result += text[i];
+                }
+            }
+            return result;
+        }
+
+        function transformVowelSub(text, direction) {
+            let mapping;
+            if (direction === 'encode') {
+                mapping = VOWELS_TO_NUM;
+            } else {
+                mapping = NUM_TO_VOWELS;
+            }
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                const char = direction === 'encode' ? text[i].toUpperCase() : text[i];
+                if (mapping[char]) {
+                    result += mapping[char];
+                } else {
+                    result += text[i];
+                }
+            }
+            return result;
+        }
+
+        function updateSettingsVisibility() {
+            activeMode = cipherModeSelect.value;
+            if (activeMode === 'caesar') {
+                caesarSettingsDiv.style.display = 'block';
+                vowelSettingsDiv.style.display = 'none';
+                updateShiftDisplay();
+            } else if (activeMode === 'vowel_sub') {
+                caesarSettingsDiv.style.display = 'none';
+                vowelSettingsDiv.style.display = 'block';
+            }
+        }
+        
+        function updateShiftDisplay() {
+            currentShiftDisplay.textContent = currentShift;
+            aTargetDisplay.textContent = getShiftedChar(0, currentShift); 
+        }
+
+        async function saveHistoryEntry(action, input, output, mode, shift = null) {
+            if (!currentUserId || !db) {
+                console.error("Impossible de sauvegarder : Utilisateur non authentifié ou DB non prête.");
+                return;
+            }
+            
+            const historyRef = collection(db, `artifacts/${appId}/users/${currentUserId}/encoding_history`);
+            try {
+                await addDoc(historyRef, {
+                    action,
+                    input: input.substring(0, 100), 
+                    output: output.substring(0, 100),
+                    mode,
+                    shift,
+                    timestamp: serverTimestamp()
+                });
+            } catch (error) {
+                console.error("Erreur de sauvegarde de l'historique:", error);
+            }
+        }
+
+        function loadHistory() {
+            if (!currentUserId || !db) return;
+
+            const historyRef = collection(db, `artifacts/${appId}/users/${currentUserId}/encoding_history`);
+            const historyQuery = query(historyRef, orderBy('timestamp', 'desc'));
+
+            onSnapshot(historyQuery, (snapshot) => {
+                historyList.innerHTML = ''; 
+                snapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    const li = document.createElement('li');
+                    
+                    let shiftInfo = data.mode === 'caesar' ? ` (Clé: ${data.shift})` : '';
+                    let actionText = data.action === 'encode' ? 'ENCODE' : 'DÉCODE';
+                    let actionColor = data.action === 'encode' ? 'var(--accent)' : '#8b5cf6';
+                    
+                    li.style.cssText = `border-bottom: 1px solid var(--border); padding: 5px 0; font-size: 0.8rem;`;
+                    li.innerHTML = `
+                        <span style="color:${actionColor}; font-weight:bold;">[${actionText}]</span> 
+                        <span class="muted" style="margin-left: 5px;">${data.mode.toUpperCase()}${shiftInfo}</span><br>
+                        Entrée: <span style="color:var(--text);">${data.input}</span> → 
+                        Sortie: <span style="color:var(--text);">${data.output}</span>
+                    `;
+                    historyList.appendChild(li);
+                });
+            }, (error) => {
+                console.error("Erreur d'écoute Historique Firestore:", error);
+            });
+        }
+        
+        // Événements Encode / Decode
+        document.getElementById('encodeBtn').addEventListener('click', () => {
+            const inputText = inputTextarea.value;
+            let result = '';
+            if (activeMode === 'caesar') {
+                result = transformCaesar(inputText, 'encode');
+                saveHistoryEntry('encode', inputText, result, 'caesar', currentShift);
+            } else if (activeMode === 'vowel_sub') {
+                result = transformVowelSub(inputText, 'encode');
+                saveHistoryEntry('encode', inputText, result, 'vowel_sub');
+            }
+            outputTextarea.value = result;
+        });
+
+        document.getElementById('decodeBtn').addEventListener('click', () => {
+            const inputText = inputTextarea.value;
+            let result = '';
+            if (activeMode === 'caesar') {
+                result = transformCaesar(inputText, 'decode');
+                saveHistoryEntry('decode', inputText, result, 'caesar', currentShift);
+            } else if (activeMode === 'vowel_sub') {
+                result = transformVowelSub(inputText, 'decode');
+                saveHistoryEntry('decode', inputText, result, 'vowel_sub');
+            }
+            outputTextarea.value = result;
+        });
+
+        // --- GESTION DU PROFIL ---
+        document.getElementById('saveProfileBtn').addEventListener('click', async function() {
+            const newAlias = document.getElementById('profileAliasInput').value.trim();
+            if (!newAlias || newAlias.length < 3) {
+                showMessageBox("ERREUR : L'alias doit contenir au moins 3 caractères.");
+                return;
+            }
+            
+            if (newAlias.includes('/') || newAlias.includes('.')) {
+                 showMessageBox("ERREUR : L'alias ne peut pas contenir de '/' ou de '.'.");
+                 return;
+            }
+
+            if (!currentUserId || !db) {
+                showMessageBox("Erreur : Connexion en cours.");
+                return;
+            }
+
+            try {
+                const profileDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+                await setDoc(profileDocRef, { alias: newAlias }, { merge: true });
+                
+                publicAlias = newAlias;
+                document.getElementById('currentUserDisplay').textContent = publicAlias;
+                showMessageBox(`Alias mis à jour avec succès : ${publicAlias}`);
+
+            } catch (error) {
+                showMessageBox("ERREUR : Impossible de sauvegarder le nouvel alias.");
+                console.error("Erreur de sauvegarde de l'alias:", error);
+            }
+        });
+
+        // Autres événements de l'Encodeur
+        cipherModeSelect.addEventListener('change', updateSettingsVisibility);
+
+        document.getElementById('saveShift').addEventListener('click', () => {
+            const newShift = parseInt(shiftAmountInput.value);
+            if (newShift >= 0 && newShift < ALPHABET_LENGTH) {
+                currentShift = newShift;
+                updateShiftDisplay();
+                showMessageBox(`Décalage activé : A → ${getShiftedChar(0, currentShift)}.`);
+            } else {
+                showMessageBox('ERREUR : Le décalage doit être un nombre entier entre 0 et 25.');
+                shiftAmountInput.value = currentShift;
+            }
+        });
+
+        document.getElementById('resetShift').addEventListener('click', () => {
+            currentShift = 1;
+            shiftAmountInput.value = currentShift;
+            updateShiftDisplay();
+            showMessageBox('Décalage réinitialisé à 1 (A → B).');
+        });
+
+
+        // Fonction utilitaire pour remplacer les alertes
+        function showMessageBox(message) {
+            const tempDiv = document.createElement('div');
+            tempDiv.style.cssText = `
+                position: fixed; top: 10px; right: 10px; background-color: ${message.includes('ERREUR') ? 'red' : 'var(--accent)'};
+                color: var(--card); padding: 10px 15px; border-radius: var(--radius); z-index: 2000;
+                box-shadow: var(--glow); font-weight: bold; animation: fadeout 5s forwards;
+            `;
+            tempDiv.textContent = message;
+            document.body.appendChild(tempDiv);
+
+            setTimeout(() => {
+                tempDiv.remove();
+            }, 5000); 
+        }
+
+        // --- Initialisation au chargement ---
+        document.getElementById('year').textContent = new Date().getFullYear();
+        shiftAmountInput.value = currentShift;
+        updateSettingsVisibility();
+    </script>
     
     <style>
         /* BASE FUTURISTE (inchangée) */
@@ -181,6 +573,45 @@
             font-size: 0.8rem;
             min-width: 80px;
         }
+        .security-alert {
+            background-color: #581c1c; 
+            color: #fca5a5; 
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border: 1px solid #dc2626;
+            font-size: 0.9rem;
+        }
+        /* Style pour l'historique */
+        #historyList {
+            list-style: none;
+            padding: 0;
+            max-height: 400px; /* Limite la hauteur de l'historique */
+            overflow-y: auto;
+        }
+        #historyList::-webkit-scrollbar {
+            width: 8px;
+        }
+        #historyList::-webkit-scrollbar-thumb {
+            background-color: var(--muted);
+            border-radius: 4px;
+        }
+        .current-user-tag {
+            font-size: 1rem;
+            color: #8b5cf6;
+            margin-left: 20px;
+            font-weight: bold;
+        }
+        .profile-data-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 15px;
+            border-radius: var(--radius);
+            margin-top: 15px;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+
         @media (max-width:600px){
             .hero{flex-direction:column; align-items:flex-start}
             header{flex-direction:column; align-items:flex-start}
@@ -192,6 +623,8 @@
             body {
                 padding-bottom: 200px;
             }
+            .history-card { order: 1; } /* Mettre la carte d'historique en haut sur mobile */
+            .grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -201,43 +634,49 @@
             <div class="brand">
                 <span class="logo" aria-hidden="true"></span>
                 <div>
-                    <strong>CYBER-BASE</strong><div class="muted">PROTOCOLE EN LIGNE V3.1</div>
+                    <strong>CYBER-BASE</strong><div class="muted">PROTOCOLE EN LIGNE V6.0 (ALIAS PERSONNALISÉ)</div>
                 </div>
             </div>
             <nav aria-label="Navigation principale">
                 <ul>
                     <li><a href="#home">/ ACCUEIL</a></li>
-                    <li><a href="#features">/ FONCTIONS</a></li>
                     <li><a href="#encoder">/ ENCODEUR</a></li>
+                    <li><a href="#profile-mgmt">/ PROFIL</a></li>
+                    <li><a href="#history-log">/ LOGS</a></li>
+                    <li class="current-user-tag" id="currentUserDisplay">...</li>
                 </ul>
             </nav>
         </header>
 
         <main>
+            <div class="security-alert">
+                [ALERTE SÉCURITÉ] Votre Clé API est visible dans le code source. Veuillez la restreindre aux domaines de votre projet GitHub et localhost via la console Google Cloud pour éviter les abus de quotas.
+            </div>
+            
             <section class="hero" id="home">
                 <div class="left">
                     <h1>SYSTÈME EN LIGNE OPÉRATIONNEL</h1>
-                    <p class="muted">Interface de base pour la navigation. Modifiez les paramètres pour un accès complet.</p>
-                    <a class="btn" href="#" target="_blank">ACCÈS PROTOCOLE</a>
-                    <a class="btn" href="#encoder" style="background:#4a5568; box-shadow:none;">OUVRIR ENCODEUR</a>
+                    <p class="muted">Interface de base pour la navigation. Connecté à Firestore pour l'historique personnel chiffré.</p>
+                    <a class="btn" href="#encoder">OUVRIR ENCODEUR</a>
+                    <a class="btn" href="#history-log" style="background:#8b5cf6; box-shadow:0 0 15px rgba(139, 92, 246, 0.4);">VOIR LOGS</a>
                 </div>
                 <div style="min-width:180px; text-align:right;">
                     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120'%3E%3Crect rx='4' width='160' height='120' fill='%231f2937'/%3E%3Cpath d='M 10 30 L 150 30 L 150 100 L 10 100 Z' stroke='%2300ffc4' stroke-width='2' fill='none'/%3E%3Ccircle cx='30' cy='50' r='5' fill='%2300ffc4'/%3E%3Cpath d='M 40 50 L 140 50 M 30 70 L 130 70 M 50 90 L 110 90' stroke='%235e7087' stroke-width='1'/%3E%3Ctext x='80' y='65' font-family='Courier New' font-size='10' fill='%2300ffc4' text-anchor='middle'%3E[DONNÉES CHIFFRÉES]%3C/text%3E%3C/svg%3E" alt="Interface futuriste" aria-hidden="true" style="border-radius:4px;">
                 </div>
             </section>
 
-            <section id="features" class="grid" aria-label="Fonctionnalités du Système">
+            <section class="grid" aria-label="Fonctionnalités du Système">
                 <article class="card">
-                    <h3>01. AUDIT DE SÉCURITÉ</h3>
-                    <p class="muted">Analyse des dépendances du système et des ports ouverts pour détecter les vulnérabilités.</p>
+                    <h3>01. AUTHENTIFICATION SÉCURISÉE</h3>
+                    <p class="muted">Connexion persistante via jeton. L'application gère l'ID sécurisé.</p>
                 </article>
                 <article class="card">
-                    <h3>02. TÉLÉMÉTRIE TEMPS RÉEL</h3>
-                    <p class="muted">Surveillance de l'état du réseau (latence, flux de données) avec mise à jour immédiate.</p>
+                    <h3>02. HISTORIQUE PRIVÉ</h3>
+                    <p class="muted">L'historique des encodages est stocké de manière privée sur Firestore, lié à votre ID.</p>
                 </article>
                 <article class="card">
-                    <h3>03. CONFIGURATION PAR CLÉ</h3>
-                    <p class="muted">Paramétrage rapide des protocoles via une clé alphanumérique personnalisable (encodeur).</p>
+                    <h3>03. CHAT PUBLIC (ALIAS)</h3>
+                    <p class="muted">Alias personnalisable pour une identification facile (ex: Votre-Nom-Ici).</p>
                 </article>
             </section>
 
@@ -295,6 +734,33 @@
                     </label>
                 </form>
             </section>
+            
+            <section id="profile-mgmt" class="card" aria-labelledby="profile-title" style="margin-top: 30px;">
+                <h3 id="profile-title">MODULE DE GESTION D'IDENTITÉ</h3>
+                <p class="muted">Gérez votre Alias Public (pour le Chat) et visualisez votre ID Sécurisé unique.</p>
+
+                <div class="profile-data-box">
+                    **ID SÉCURISÉ (Firebase UID) :** <span id="secureIDDisplay" style="color:var(--accent);">...</span><br>
+                    <span class="muted">Ceci est votre identifiant privé et permanent pour la base de données.</span>
+                </div>
+                
+                <form id="aliasForm" style="margin-top: 20px;">
+                    <label>
+                        <span class="muted">Alias Public (Nom d'utilisateur mémorisable)</span>
+                        <input type="text" id="profileAliasInput" placeholder="Saisissez votre nouvel alias..." minlength="3" required>
+                    </label>
+                    <button type="button" class="btn" id="saveProfileBtn">ENREGISTRER L'ALIAS</button>
+                </form>
+            </section>
+            
+            <section id="history-log" class="card history-card" aria-labelledby="history-title" style="margin-top: 30px;">
+                <h3 id="history-title">LOG DES OPÉRATIONS (Historique Privé)</h3>
+                <p class="muted">Liste de vos 50 dernières transformations de code, enregistrée sur Firestore.</p>
+                <ul id="historyList">
+                    <li style="color: var(--muted);">Chargement de l'historique...</li>
+                </ul>
+            </section>
+
         </main>
 
         <footer>
@@ -311,202 +777,5 @@
             <button type="submit" class="btn" id="chatSendBtn">ENVOYER</button>
         </form>
     </div>
-
-    <script>
-        document.getElementById('year').textContent = new Date().getFullYear();
-
-        // --- CONFIGURATION FIREBASE (Vos clés) ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyDsKu6EavK4oEh4F2TS0EoB5HwzMxY7kgU",
-            authDomain: "chat-encode.firebaseapp.com",
-            databaseURL: "https://chat-encode-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "chat-encode",
-            storageBucket: "chat-encode.firebasestorage.app",
-            messagingSenderId: "812767464816",
-            appId: "1:812767464816:web:e46750b8cfda20063c93b5",
-            // measurementId n'est pas utilisé pour le chat de base
-        };
-        
-        // Initialiser Firebase
-        firebase.initializeApp(firebaseConfig);
-
-        // Référence à la partie de la BDD (Realtime Database)
-        const messagesRef = firebase.database().ref('chat/messages');
-        
-        // Identifiant unique pour cette session (pour différencier VOS messages)
-        const userId = 'USER-' + Math.floor(Math.random() * 100000).toString(16).toUpperCase(); 
-
-        // --- Logique de l'Encodeur de Code (inchangée) ---
-        
-        const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        const ALPHABET_LENGTH = ALPHABET.length;
-        const VOWELS_TO_NUM = {'A': '1', 'E': '2', 'I': '3', 'O': '4', 'U': '5'};
-        const NUM_TO_VOWELS = {'1': 'A', '2': 'E', '3': 'I', '4': 'O', '5': 'U'};
-        
-        let currentShift = 1; 
-        let activeMode = 'caesar';
-
-        const cipherModeSelect = document.getElementById('cipherMode');
-        const caesarSettingsDiv = document.getElementById('caesarSettings');
-        const vowelSettingsDiv = document.getElementById('vowelSettings');
-        const shiftAmountInput = document.getElementById('shiftAmount');
-        const currentShiftDisplay = document.getElementById('currentShiftDisplay');
-        const aTargetDisplay = document.getElementById('aTargetDisplay');
-        const inputTextarea = document.getElementById('inputText');
-        const outputTextarea = document.getElementById('outputText');
-
-        function getShiftedChar(index, shift) {
-            return ALPHABET[(index + shift) % ALPHABET_LENGTH];
-        }
-
-        function transformCaesar(text, direction) {
-            let result = '';
-            const shift = direction === 'encode' ? currentShift : ALPHABET_LENGTH - currentShift;
-            for (let i = 0; i < text.length; i++) {
-                const char = text[i].toUpperCase();
-                const index = ALPHABET.indexOf(char);
-                if (index !== -1) {
-                    result += getShiftedChar(index, shift);
-                } else {
-                    result += text[i];
-                }
-            }
-            return result;
-        }
-
-        function transformVowelSub(text, direction) {
-            let mapping;
-            if (direction === 'encode') {
-                mapping = VOWELS_TO_NUM;
-            } else {
-                mapping = NUM_TO_VOWELS;
-            }
-            let result = '';
-            for (let i = 0; i < text.length; i++) {
-                const char = direction === 'encode' ? text[i].toUpperCase() : text[i];
-                if (mapping[char]) {
-                    result += mapping[char];
-                } else {
-                    result += text[i];
-                }
-            }
-            return result;
-        }
-
-        function updateSettingsVisibility() {
-            activeMode = cipherModeSelect.value;
-            if (activeMode === 'caesar') {
-                caesarSettingsDiv.style.display = 'block';
-                vowelSettingsDiv.style.display = 'none';
-                updateShiftDisplay();
-            } else if (activeMode === 'vowel_sub') {
-                caesarSettingsDiv.style.display = 'none';
-                vowelSettingsDiv.style.display = 'block';
-            }
-        }
-        
-        function updateShiftDisplay() {
-            currentShiftDisplay.textContent = currentShift;
-            aTargetDisplay.textContent = getShiftedChar(0, currentShift); 
-        }
-
-        cipherModeSelect.addEventListener('change', updateSettingsVisibility);
-
-        document.getElementById('saveShift').addEventListener('click', () => {
-            const newShift = parseInt(shiftAmountInput.value);
-            if (newShift >= 0 && newShift < ALPHABET_LENGTH) {
-                currentShift = newShift;
-                updateShiftDisplay();
-                alert(`Décalage activé : A → ${getShiftedChar(0, currentShift)}.`);
-            } else {
-                alert('ERREUR : Le décalage doit être un nombre entier entre 0 et 25.');
-                shiftAmountInput.value = currentShift;
-            }
-        });
-
-        document.getElementById('resetShift').addEventListener('click', () => {
-            currentShift = 1;
-            shiftAmountInput.value = currentShift;
-            updateShiftDisplay();
-            alert('Décalage réinitialisé à 1 (A → B).');
-        });
-        
-        document.getElementById('encodeBtn').addEventListener('click', () => {
-            const inputText = inputTextarea.value;
-            let result = '';
-            if (activeMode === 'caesar') {
-                result = transformCaesar(inputText, 'encode');
-            } else if (activeMode === 'vowel_sub') {
-                result = transformVowelSub(inputText, 'encode');
-            }
-            outputTextarea.value = result;
-        });
-
-        document.getElementById('decodeBtn').addEventListener('click', () => {
-            const inputText = inputTextarea.value;
-            let result = '';
-            if (activeMode === 'caesar') {
-                result = transformCaesar(inputText, 'decode');
-            } else if (activeMode === 'vowel_sub') {
-                result = transformVowelSub(inputText, 'decode');
-            }
-            outputTextarea.value = result;
-        });
-
-
-        // --- Logique du Chat Terminal avec Firebase (Réel) ---
-        const chatDisplay = document.getElementById('chatDisplay');
-        const chatInput = document.getElementById('chatInput');
-        const chatInputForm = document.getElementById('chatInputForm');
-        
-        function appendMessage(message, type) {
-            const msgDiv = document.createElement('div');
-            const timestamp = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-            msgDiv.className = `chat-message chat-${type}`;
-            msgDiv.innerHTML = `[${timestamp}] ${message}`;
-            chatDisplay.appendChild(msgDiv);
-            chatDisplay.scrollTop = chatDisplay.scrollHeight;
-        }
-
-        // Événement d'envoi du message (PUSH vers Firebase)
-        chatInputForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const userMessage = chatInput.value.trim();
-
-            if (userMessage) {
-                // PUSH le message dans la base de données Firebase
-                messagesRef.push({
-                    text: userMessage,
-                    senderId: userId,
-                    timestamp: firebase.database.ServerValue.TIMESTAMP
-                });
-
-                chatInput.value = ''; // Effacer le champ
-            }
-        });
-        
-        // Événement de réception des messages (écoute en temps réel)
-        // 'child_added' est déclenché pour chaque message existant et pour chaque nouveau message
-        // limitToLast(200) charge les 200 derniers messages pour éviter de surcharger
-        messagesRef.limitToLast(200).on('child_added', (snapshot) => {
-            const data = snapshot.val();
-            // Vérifie si l'expéditeur est l'utilisateur actuel
-            const isUser = data.senderId === userId;
-            const senderTag = isUser ? '[VOUS]' : `[ID:${data.senderId}]`;
-            // Utilise la classe 'user' pour vos messages, 'system' pour les autres
-            const type = isUser ? 'user' : 'system'; 
-            
-            // Affichage du message
-            appendMessage(`${senderTag} : ${data.text}`, type);
-        });
-
-        // Message de statut au démarrage
-        appendMessage(`[SYSTEM] : Canal configuré. Votre ID utilisateur est: ${userId}. Statut: EN LIGNE.`, 'system');
-
-
-        // --- Initialisation ---
-        shiftAmountInput.value = currentShift;
-        updateSettingsVisibility();
-    </script>
 </body>
 </html>
